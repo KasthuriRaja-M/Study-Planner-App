@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaPlus, FaTrash, FaEdit, FaCheck, FaTimes, FaPlay, FaPause, FaStop, FaClock } from 'react-icons/fa';
+import { FaPlus, FaTrash, FaEdit, FaCheck, FaTimes, FaPlay, FaPause, FaStop, FaClock, FaChartLine, FaTrophy, FaFire } from 'react-icons/fa';
 import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import './App.css';
@@ -15,6 +15,7 @@ function App() {
   });
   const [editingTask, setEditingTask] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [showProgress, setShowProgress] = useState(false);
   
   // Study Timer States
   const [timer, setTimer] = useState({
@@ -32,6 +33,10 @@ function App() {
     sessionsBeforeLongBreak: 4
   });
 
+  // Progress tracking
+  const [streak, setStreak] = useState(0);
+  const [weeklyProgress, setWeeklyProgress] = useState([]);
+
   // Load tasks from localStorage on component mount
   useEffect(() => {
     const savedTasks = localStorage.getItem('studyTasks');
@@ -42,6 +47,16 @@ function App() {
     const savedTimerSettings = localStorage.getItem('timerSettings');
     if (savedTimerSettings) {
       setTimerSettings(JSON.parse(savedTimerSettings));
+    }
+
+    const savedStreak = localStorage.getItem('studyStreak');
+    if (savedStreak) {
+      setStreak(JSON.parse(savedStreak));
+    }
+
+    const savedWeeklyProgress = localStorage.getItem('weeklyProgress');
+    if (savedWeeklyProgress) {
+      setWeeklyProgress(JSON.parse(savedWeeklyProgress));
     }
   }, []);
 
@@ -54,6 +69,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem('timerSettings', JSON.stringify(timerSettings));
   }, [timerSettings]);
+
+  // Save streak to localStorage
+  useEffect(() => {
+    localStorage.setItem('studyStreak', JSON.stringify(streak));
+  }, [streak]);
+
+  // Save weekly progress to localStorage
+  useEffect(() => {
+    localStorage.setItem('weeklyProgress', JSON.stringify(weeklyProgress));
+  }, [weeklyProgress]);
 
   // Timer effect
   useEffect(() => {
@@ -77,6 +102,10 @@ function App() {
               // Study session finished, start break
               const isLongBreak = (prevTimer.sessions + 1) % timerSettings.sessionsBeforeLongBreak === 0;
               const breakDuration = isLongBreak ? timerSettings.longBreakTime : timerSettings.breakTime;
+              
+              // Update streak and progress
+              updateProgress();
+              
               return {
                 ...prevTimer,
                 isRunning: false,
@@ -96,6 +125,34 @@ function App() {
     }
     return () => clearInterval(interval);
   }, [timer.isRunning, timer.timeLeft, timerSettings]);
+
+  const updateProgress = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const currentWeek = getWeekNumber(new Date());
+    
+    // Update streak
+    setStreak(prev => prev + 1);
+    
+    // Update weekly progress
+    setWeeklyProgress(prev => {
+      const weekData = prev.find(w => w.week === currentWeek);
+      if (weekData) {
+        return prev.map(w => 
+          w.week === currentWeek 
+            ? { ...w, sessions: w.sessions + 1, date: today }
+            : w
+        );
+      } else {
+        return [...prev, { week: currentWeek, sessions: 1, date: today }];
+      }
+    });
+  };
+
+  const getWeekNumber = (date) => {
+    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+    const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+  };
 
   const addTask = () => {
     if (!newTask.title.trim()) return;
@@ -189,6 +246,25 @@ function App() {
     return ((timer.totalTime - timer.timeLeft) / timer.totalTime) * 100;
   };
 
+  const getWeeklyChartData = () => {
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const sessions = weeklyProgress.filter(p => 
+        new Date(p.date).toDateString() === date.toDateString()
+      ).reduce((sum, p) => sum + p.sessions, 0);
+      last7Days.push({ day: dayName, sessions });
+    }
+    return last7Days;
+  };
+
+  const getMaxSessions = () => {
+    const chartData = getWeeklyChartData();
+    return Math.max(...chartData.map(d => d.sessions), 1);
+  };
+
   return (
     <div className="App">
       <div className="container">
@@ -196,6 +272,73 @@ function App() {
           <h1>📚 Study Planner App</h1>
           <p>Organize your studies efficiently and stay on track!</p>
         </header>
+
+        {/* Progress Overview */}
+        <div className="card progress-overview">
+          <div className="card-header">
+            <h2 className="card-title">
+              <FaChartLine /> Progress Overview
+            </h2>
+            <button 
+              className="btn btn-outline"
+              onClick={() => setShowProgress(!showProgress)}
+            >
+              {showProgress ? 'Hide Details' : 'Show Details'}
+            </button>
+          </div>
+          <div className="progress-stats">
+            <div className="progress-item">
+              <div className="progress-icon streak">
+                <FaFire />
+              </div>
+              <div className="progress-info">
+                <span className="progress-number">{streak}</span>
+                <span className="progress-label">Day Streak</span>
+              </div>
+            </div>
+            <div className="progress-item">
+              <div className="progress-icon sessions">
+                <FaTrophy />
+              </div>
+              <div className="progress-info">
+                <span className="progress-number">{timer.completedSessions}</span>
+                <span className="progress-label">Sessions Today</span>
+              </div>
+            </div>
+            <div className="progress-item">
+              <div className="progress-icon completion">
+                <FaCheck />
+              </div>
+              <div className="progress-info">
+                <span className="progress-number">
+                  {tasks.length > 0 ? Math.round((tasks.filter(t => t.completed).length / tasks.length) * 100) : 0}%
+                </span>
+                <span className="progress-label">Task Completion</span>
+              </div>
+            </div>
+          </div>
+          
+          {showProgress && (
+            <div className="weekly-chart">
+              <h3>This Week's Progress</h3>
+              <div className="chart-container">
+                {getWeeklyChartData().map((day, index) => (
+                  <div key={index} className="chart-bar">
+                    <div 
+                      className="bar-fill"
+                      style={{ 
+                        height: `${(day.sessions / getMaxSessions()) * 100}%`,
+                        background: day.sessions > 0 ? 'linear-gradient(45deg, #667eea, #764ba2)' : '#e9ecef'
+                      }}
+                    ></div>
+                    <span className="bar-label">{day.day}</span>
+                    <span className="bar-value">{day.sessions}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Study Timer Section */}
         <div className="card timer-card">
